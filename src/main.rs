@@ -1,15 +1,8 @@
 #![allow(unused)]
 use serde_json::Value;
-use std::{fmt::Display, fs};
 
 #[derive(Eq, PartialEq, Debug)]
-enum Format {
-    Video,
-    Audio,
-}
-
-#[derive(Eq, PartialEq, Debug)]
-enum Quality {
+enum VideoQuality {
     Tiny,
     Small,
     Medium,
@@ -21,36 +14,47 @@ enum Quality {
 }
 
 #[derive(Eq, PartialEq, Debug)]
-enum Codec {
-    Vp9,
-    Mp4v,
-    Mp4a,
-    Av01,
-    Avc1,
-    Opus,
-}
-
-#[derive(Eq, PartialEq, Debug)]
 enum AudioQuality {
     Low,
     Medium,
 }
 
+#[derive(Eq, PartialEq, Debug)]
+enum VideoCodec {
+    Vp9,
+    Mp4v,
+    Mp4a,
+    Av01,
+    Avc1,
+}
+
+#[derive(Eq, PartialEq, Debug)]
+enum AudioCodec {
+    Opus,
+    Mp4a,
+}
+
 #[derive(Debug)]
 struct Video {
-    pub quality: Quality,
-    pub audio_quality: Option<AudioQuality>,
-    pub format: Format,
-    pub codecs: (Codec, Option<Codec>),
+    pub video_codec: VideoCodec,
+    pub video_quality: VideoQuality,
+    pub audio_quality: AudioQuality,
+    pub audio_codec: AudioCodec,
     pub url: String,
 }
-impl Display for Video {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!(
-            "{:?} {:?} {:?}",
-            self.quality, self.audio_quality, self.codecs
-        ))
-    }
+
+#[derive(Debug)]
+struct VideoOnly {
+    pub video_codec: VideoCodec,
+    pub quality: VideoQuality,
+    pub url: String,
+}
+
+#[derive(Debug)]
+struct AudioOnly {
+    pub audio_quality: AudioQuality,
+    pub audio_codec: AudioCodec,
+    pub url: String,
 }
 
 fn main() {
@@ -59,12 +63,12 @@ fn main() {
 
     match url {
         Ok(url) => {
-            let res = minreq::get(url)
-                .with_max_status_line_length(10_000_000)
-                .send()
-                .unwrap();
+            // let res = minreq::get(url)
+            //     .with_max_status_line_length(10_000_000)
+            //     .send()
+            //     .unwrap();
 
-            fs::write("video.webm", res.as_bytes());
+            // fs::write("video.webm", res.as_bytes());
         }
         Err(_) => return,
     }
@@ -92,23 +96,25 @@ fn get_url(id: &str) -> Result<String, ()> {
     let adaptive_formats = &data["adaptiveFormats"].as_array().unwrap();
 
     let mut videos = Vec::new();
+    let mut videos_only = Vec::new();
+    let mut audios_only = Vec::new();
 
     for tag in formats.iter().chain(adaptive_formats.iter()) {
-        let quality = &tag["quality"].as_str().unwrap();
+        let video_quality = &tag["quality"].as_str().unwrap();
         let audio_quality = &tag["audioQuality"].as_str().unwrap_or("empty");
         let mime_type = &tag["mimeType"].as_str().unwrap();
         let url = &tag["url"].as_str().unwrap();
 
-        let quality = match *quality {
-            "tiny" => Quality::Tiny,
-            "small" => Quality::Small,
-            "medium" => Quality::Medium,
-            "large" => Quality::Large,
-            "hd720" => Quality::HD720,
-            "hd1080" => Quality::HD1080,
-            "hd1440" => Quality::HD1440,
-            "hd2160" => Quality::HD2160,
-            _ => panic!("{}", quality),
+        let video_quality = match *video_quality {
+            "tiny" => VideoQuality::Tiny,
+            "small" => VideoQuality::Small,
+            "medium" => VideoQuality::Medium,
+            "large" => VideoQuality::Large,
+            "hd720" => VideoQuality::HD720,
+            "hd1080" => VideoQuality::HD1080,
+            "hd1440" => VideoQuality::HD1440,
+            "hd2160" => VideoQuality::HD2160,
+            _ => panic!("{}", video_quality),
         };
 
         let audio_quality = match *audio_quality {
@@ -120,66 +126,69 @@ fn get_url(id: &str) -> Result<String, ()> {
 
         let (av, codec) = mime_type.split_once("; ").unwrap();
 
-        let (first, second) = if codec.contains(",") {
-            let (first, second) = codec.split_once(",").unwrap();
-            (first, Some(second))
+        let (first, audio) = if codec.contains(",") {
+            let (first, audio) = codec.split_once(",").unwrap();
+            (first, Some(audio))
         } else {
             (codec, None)
         };
 
-        let format = if av.starts_with("video/") {
-            Format::Video
-        } else if av.starts_with("audio/") {
-            Format::Audio
-        } else {
-            unreachable!();
-        };
-
-        let codec = |input: &str| -> Option<Codec> {
+        let video_codec = |input: &str| -> VideoCodec {
             if input.contains("vp9") {
-                Some(Codec::Vp9)
+                VideoCodec::Vp9
             } else if input.contains("av01") {
-                Some(Codec::Av01)
+                VideoCodec::Av01
             } else if input.contains("avc1") {
-                Some(Codec::Avc1)
+                VideoCodec::Avc1
             } else if input.contains("mp4a") {
-                Some(Codec::Mp4a)
+                VideoCodec::Mp4a
             } else if input.contains("mp4v") {
-                Some(Codec::Mp4v)
-            } else if input.contains("opus") {
-                Some(Codec::Opus)
+                VideoCodec::Mp4v
             } else {
                 unreachable!()
             }
         };
 
-        let codecs = match format {
-            Format::Video => {
-                let second = if let Some(second) = second {
-                    codec(second)
-                } else {
-                    None
-                };
-
-                (codec(first).unwrap(), second)
+        let audio_codec = |input: &str| -> AudioCodec {
+            if input.contains("mp4a") {
+                AudioCodec::Mp4a
+            } else if input.contains("opus") {
+                AudioCodec::Opus
+            } else {
+                unreachable!()
             }
-            Format::Audio => (codec(first).unwrap(), None),
         };
 
-        let video = Video {
-            quality,
-            audio_quality,
-            format,
-            codecs,
-            url: url.to_string(),
+        if av.starts_with("video/") {
+            if let Some(audio_quality) = audio_quality {
+                let video = Video {
+                    video_codec: video_codec(first),
+                    video_quality,
+                    audio_quality,
+                    url: url.to_string(),
+                    audio_codec: audio_codec(audio.unwrap()),
+                };
+                videos.push(video);
+            } else {
+                let video = VideoOnly {
+                    video_codec: video_codec(first),
+                    quality: video_quality,
+                    url: url.to_string(),
+                };
+                videos_only.push(video);
+            }
+        } else if av.starts_with("audio/") {
+            let audio = AudioOnly {
+                audio_codec: audio_codec(first),
+                audio_quality: audio_quality.unwrap(),
+                url: url.to_string(),
+            };
+            audios_only.push(audio);
+        } else {
+            unreachable!();
         };
-
-        videos.push(video);
     }
 
-    for video in videos {
-        println!("{}", video);
-    }
-
+    dbg!(videos_only);
     Err(())
 }
