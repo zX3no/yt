@@ -1,40 +1,53 @@
 #![allow(unused)]
 use serde_json::Value;
+use std::cmp::Ordering;
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, PartialOrd, Ord)]
 enum VideoQuality {
-    Tiny,
-    Small,
-    Medium,
-    Large,
-    HD720,
-    HD1080,
-    HD1440,
     HD2160,
-}
-
-#[derive(Eq, PartialEq, Debug)]
-enum AudioQuality {
-    Low,
+    HD1440,
+    HD1080,
+    HD720,
+    Large,
     Medium,
+    Small,
+    Tiny,
 }
 
-#[derive(Eq, PartialEq, Debug)]
-enum VideoCodec {
-    Vp9,
-    Mp4v,
-    Mp4a,
+#[derive(Eq, PartialEq, Debug, PartialOrd, Ord)]
+enum AudioQuality {
+    Medium,
+    Low,
+}
+
+#[derive(Eq, PartialEq, Debug, PartialOrd, Ord)]
+enum VideoOnlyCodec {
+    //.MP4
     Av01,
     Avc1,
+
+    //.WEBM
+    Vp9,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, PartialOrd, Ord)]
+enum VideoCodec {
+    //.MP4
+    Avc1,
+
+    //.3gp
+    Mp4v,
+}
+
+#[derive(Eq, PartialEq, Debug, PartialOrd, Ord)]
 enum AudioCodec {
+    //.weba
     Opus,
+    //.3gp
     Mp4a,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Video {
     pub video_codec: VideoCodec,
     pub video_quality: VideoQuality,
@@ -43,14 +56,14 @@ struct Video {
     pub url: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct VideoOnly {
-    pub video_codec: VideoCodec,
+    pub codec: VideoOnlyCodec,
     pub quality: VideoQuality,
     pub url: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct AudioOnly {
     pub audio_quality: AudioQuality,
     pub audio_codec: AudioCodec,
@@ -59,7 +72,7 @@ struct AudioOnly {
 
 fn main() {
     let url = get_url("N5kd-JIVCgg");
-    // let url = get_url("dCkZMZuqnuI");
+    // let url = get_url("n4Ft4WDA3oU");
 
     match url {
         Ok(url) => {
@@ -133,19 +146,25 @@ fn get_url(id: &str) -> Result<String, ()> {
             (codec, None)
         };
 
-        let video_codec = |input: &str| -> VideoCodec {
-            if input.contains("vp9") {
-                VideoCodec::Vp9
+        let video_only_codec = |input: &str| -> VideoOnlyCodec {
+            if input.contains("avc1") {
+                VideoOnlyCodec::Avc1
             } else if input.contains("av01") {
-                VideoCodec::Av01
-            } else if input.contains("avc1") {
+                VideoOnlyCodec::Av01
+            } else if input.contains("vp9") {
+                VideoOnlyCodec::Vp9
+            } else {
+                unreachable!("{}", input)
+            }
+        };
+
+        let video_codec = |input: &str| -> VideoCodec {
+            if input.contains("avc1") {
                 VideoCodec::Avc1
-            } else if input.contains("mp4a") {
-                VideoCodec::Mp4a
             } else if input.contains("mp4v") {
                 VideoCodec::Mp4v
             } else {
-                unreachable!()
+                unreachable!("{}", input)
             }
         };
 
@@ -155,7 +174,7 @@ fn get_url(id: &str) -> Result<String, ()> {
             } else if input.contains("opus") {
                 AudioCodec::Opus
             } else {
-                unreachable!()
+                unreachable!("{}", input)
             }
         };
 
@@ -171,7 +190,7 @@ fn get_url(id: &str) -> Result<String, ()> {
                 videos.push(video);
             } else {
                 let video = VideoOnly {
-                    video_codec: video_codec(first),
+                    codec: video_only_codec(first),
                     quality: video_quality,
                     url: url.to_string(),
                 };
@@ -189,6 +208,18 @@ fn get_url(id: &str) -> Result<String, ()> {
         };
     }
 
-    dbg!(videos_only);
+    videos_only.sort();
+    videos_only.sort_by(|a, b| {
+        if a.quality == b.quality {
+            Ordering::Equal
+        } else {
+            a.quality.cmp(&b.quality)
+        }
+    });
+
+    for video in videos_only {
+        println!("{:?} {:?}\n{}", video.quality, video.codec, video.url);
+    }
+
     Err(())
 }
