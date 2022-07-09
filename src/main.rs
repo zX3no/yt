@@ -1,6 +1,6 @@
 #![allow(unused)]
 use serde_json::Value;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, path::Path};
 
 #[derive(Eq, PartialEq, Debug, PartialOrd, Ord)]
 enum VideoQuality {
@@ -38,15 +38,6 @@ enum AudioCodec {
     Mp4a,
 }
 
-// #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-// struct Video {
-//     pub video_codec: VideoCodec,
-//     pub video_quality: VideoQuality,
-//     pub audio_quality: AudioQuality,
-//     pub audio_codec: AudioCodec,
-//     pub url: String,
-// }
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Video {
     pub codec: VideoCodec,
@@ -67,29 +58,37 @@ struct Audio {
     pub url: String,
 }
 
+fn download(url: &str, file: impl AsRef<Path>) {
+    let res = minreq::get(url)
+        .with_max_status_line_length(10_000_000)
+        .send()
+        .unwrap();
+
+    std::fs::write(file, res.as_bytes());
+}
+
 fn main() {
     // let (audio, video) = get_urls("n4Ft4WDA3oU");
     let (audio, video) = get_urls("N5kd-JIVCgg");
 
-    dbg!(audio, video);
-
     std::thread::scope(|s| {
         s.spawn(|| {
             //Download audio
+            match audio.codec {
+                AudioCodec::Opus => download(&audio.url, "audio.weba"),
+                AudioCodec::Mp4a => download(&audio.url, "audio.3gp"),
+            }
         });
         s.spawn(|| {
             //Download video
+            match video.codec {
+                VideoCodec::Av01 | VideoCodec::Avc1 => download(&video.url, "video.mp4"),
+                VideoCodec::Vp9 => download(&video.url, "video.webm"),
+            }
         });
     });
 
     //TODO: Combine audio and video.
-
-    // let res = minreq::get(url)
-    //     .with_max_status_line_length(10_000_000)
-    //     .send()
-    //     .unwrap();
-
-    // fs::write("video.webm", res.as_bytes());
 }
 
 fn get_urls(id: &str) -> (Audio, Video) {
