@@ -1,6 +1,6 @@
 #![allow(unused)]
 use serde_json::Value;
-use std::{cmp::Ordering, path::Path};
+use std::{cmp::Ordering, path::Path, process::Command};
 
 #[derive(Eq, PartialEq, Debug, PartialOrd, Ord)]
 enum VideoQuality {
@@ -45,6 +45,15 @@ struct Video {
     pub url: String,
 }
 
+impl Video {
+    pub fn path(&self) -> &'static str {
+        match self.codec {
+            VideoCodec::Av01 | VideoCodec::Avc1 => "video.mp4",
+            VideoCodec::Vp9 => "video.webm",
+        }
+    }
+}
+
 //Low Opus - Low Quality
 //Low Opus - High Quality
 //Low Mp4a - Low Quality
@@ -58,13 +67,22 @@ struct Audio {
     pub url: String,
 }
 
+impl Audio {
+    pub fn path(&self) -> &'static str {
+        match self.codec {
+            AudioCodec::Opus => "audio.weba",
+            AudioCodec::Mp4a => "audio.3gp",
+        }
+    }
+}
+
 fn download(url: &str, file: impl AsRef<Path>) {
     let res = minreq::get(url)
         .with_max_status_line_length(10_000_000)
         .send()
         .unwrap();
 
-    std::fs::write(file, res.as_bytes());
+    std::fs::write(file, res.as_bytes()).unwrap();
 }
 
 fn main() {
@@ -72,23 +90,23 @@ fn main() {
     let (audio, video) = get_urls("N5kd-JIVCgg");
 
     std::thread::scope(|s| {
-        s.spawn(|| {
-            //Download audio
-            match audio.codec {
-                AudioCodec::Opus => download(&audio.url, "audio.weba"),
-                AudioCodec::Mp4a => download(&audio.url, "audio.3gp"),
-            }
-        });
-        s.spawn(|| {
-            //Download video
-            match video.codec {
-                VideoCodec::Av01 | VideoCodec::Avc1 => download(&video.url, "video.mp4"),
-                VideoCodec::Vp9 => download(&video.url, "video.webm"),
-            }
-        });
+        s.spawn(|| download(&audio.url, audio.path()));
+        s.spawn(|| download(&video.url, video.path()));
     });
 
-    //TODO: Combine audio and video.
+    //Combine audio and video.
+    Command::new("ffmpeg")
+        .args([
+            "-i",
+            video.path(),
+            "-i",
+            audio.path(),
+            "-c",
+            "copy",
+            "output.mkv",
+        ])
+        .output()
+        .unwrap();
 }
 
 fn get_urls(id: &str) -> (Audio, Video) {
@@ -142,7 +160,7 @@ fn get_urls(id: &str) -> (Audio, Video) {
 
         let (av, codec) = mime_type.split_once("; ").unwrap();
 
-        let (first, audio) = if codec.contains(",") {
+        let (first, _) = if codec.contains(",") {
             let (first, audio) = codec.split_once(",").unwrap();
             (first, Some(audio))
         } else {
