@@ -21,22 +21,13 @@ enum AudioQuality {
 }
 
 #[derive(Eq, PartialEq, Debug, PartialOrd, Ord)]
-enum VideoOnlyCodec {
+enum VideoCodec {
     //.MP4
     Av01,
     Avc1,
 
     //.WEBM
     Vp9,
-}
-
-#[derive(Eq, PartialEq, Debug, PartialOrd, Ord)]
-enum VideoCodec {
-    //.MP4
-    Avc1,
-
-    //.3gp
-    Mp4v,
 }
 
 #[derive(Eq, PartialEq, Debug, PartialOrd, Ord)]
@@ -47,18 +38,18 @@ enum AudioCodec {
     Mp4a,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Video {
-    pub video_codec: VideoCodec,
-    pub video_quality: VideoQuality,
-    pub audio_quality: AudioQuality,
-    pub audio_codec: AudioCodec,
-    pub url: String,
-}
+// #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+// struct Video {
+//     pub video_codec: VideoCodec,
+//     pub video_quality: VideoQuality,
+//     pub audio_quality: AudioQuality,
+//     pub audio_codec: AudioCodec,
+//     pub url: String,
+// }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct VideoOnly {
-    pub codec: VideoOnlyCodec,
+struct Video {
+    pub codec: VideoCodec,
     pub quality: VideoQuality,
     pub url: String,
 }
@@ -70,30 +61,38 @@ struct VideoOnly {
 //This hopefully won't be a problem when trying to download the best
 //quality.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct AudioOnly {
+struct Audio {
     pub quality: AudioQuality,
     pub codec: AudioCodec,
     pub url: String,
 }
 
 fn main() {
-    // let url = get_url("N5kd-JIVCgg");
-    let url = get_url("n4Ft4WDA3oU");
+    // let (audio, video) = get_urls("n4Ft4WDA3oU");
+    let (audio, video) = get_urls("N5kd-JIVCgg");
 
-    match url {
-        Ok(url) => {
-            // let res = minreq::get(url)
-            //     .with_max_status_line_length(10_000_000)
-            //     .send()
-            //     .unwrap();
+    dbg!(audio, video);
 
-            // fs::write("video.webm", res.as_bytes());
-        }
-        Err(_) => return,
-    }
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            //Download audio
+        });
+        s.spawn(|| {
+            //Download video
+        });
+    });
+
+    //TODO: Combine audio and video.
+
+    // let res = minreq::get(url)
+    //     .with_max_status_line_length(10_000_000)
+    //     .send()
+    //     .unwrap();
+
+    // fs::write("video.webm", res.as_bytes());
 }
 
-fn get_url(id: &str) -> Result<String, ()> {
+fn get_urls(id: &str) -> (Audio, Video) {
     let url = "https://youtubei.googleapis.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
     let json = format!(
         "{{
@@ -115,7 +114,6 @@ fn get_url(id: &str) -> Result<String, ()> {
     let adaptive_formats = &data["adaptiveFormats"].as_array().unwrap();
 
     let mut videos = Vec::new();
-    let mut videos_only = Vec::new();
     let mut audios = Vec::new();
 
     for tag in formats.iter().chain(adaptive_formats.iter()) {
@@ -152,23 +150,13 @@ fn get_url(id: &str) -> Result<String, ()> {
             (codec, None)
         };
 
-        let video_only_codec = |input: &str| -> VideoOnlyCodec {
-            if input.contains("avc1") {
-                VideoOnlyCodec::Avc1
-            } else if input.contains("av01") {
-                VideoOnlyCodec::Av01
-            } else if input.contains("vp9") {
-                VideoOnlyCodec::Vp9
-            } else {
-                unreachable!("{}", input)
-            }
-        };
-
         let video_codec = |input: &str| -> VideoCodec {
             if input.contains("avc1") {
                 VideoCodec::Avc1
-            } else if input.contains("mp4v") {
-                VideoCodec::Mp4v
+            } else if input.contains("av01") {
+                VideoCodec::Av01
+            } else if input.contains("vp9") {
+                VideoCodec::Vp9
             } else {
                 unreachable!("{}", input)
             }
@@ -184,34 +172,21 @@ fn get_url(id: &str) -> Result<String, ()> {
             }
         };
 
-        if av.starts_with("video/") {
-            if let Some(audio_quality) = audio_quality {
-                let video = Video {
-                    video_codec: video_codec(first),
-                    video_quality,
-                    audio_quality,
-                    url: url.to_string(),
-                    audio_codec: audio_codec(audio.unwrap()),
-                };
-                videos.push(video);
-            } else {
-                let video = VideoOnly {
-                    codec: video_only_codec(first),
-                    quality: video_quality,
-                    url: url.to_string(),
-                };
-                videos_only.push(video);
-            }
+        if av.starts_with("video/") && audio_quality.is_none() {
+            let video = Video {
+                codec: video_codec(first),
+                quality: video_quality,
+                url: url.to_string(),
+            };
+            videos.push(video);
         } else if av.starts_with("audio/") {
-            let audio = AudioOnly {
+            let audio = Audio {
                 codec: audio_codec(first),
                 quality: audio_quality.unwrap(),
                 url: url.to_string(),
             };
             audios.push(audio);
-        } else {
-            unreachable!();
-        };
+        }
     }
 
     audios.sort();
@@ -223,36 +198,14 @@ fn get_url(id: &str) -> Result<String, ()> {
         }
     });
 
-    let mut videos_only: Vec<VideoOnly> = videos_only
-        .into_iter()
-        .filter(|video| video.quality < VideoQuality::HD720)
-        .collect();
+    videos.sort();
+    videos.sort_by(|a, b| {
+        if a.quality == b.quality {
+            Ordering::Equal
+        } else {
+            a.quality.cmp(&b.quality)
+        }
+    });
 
-    //I don't think we should care about pre-combined videos
-    //since they cannot have opus audio and opus is always better.
-    if videos_only.is_empty() {
-        videos.sort();
-        videos.sort_by(|a, b| {
-            if a.video_quality == b.video_quality {
-                Ordering::Equal
-            } else {
-                a.video_quality.cmp(&b.video_quality)
-            }
-        });
-
-        let best_url = &videos[0].url;
-    } else {
-        videos_only.sort();
-        videos_only.sort_by(|a, b| {
-            if a.quality == b.quality {
-                Ordering::Equal
-            } else {
-                a.quality.cmp(&b.quality)
-            }
-        });
-        let best_video_url = &videos_only[0].url;
-        let best_audio_url = &audios[0].url;
-    }
-
-    Err(())
+    (audios.remove(0), videos.remove(0))
 }
