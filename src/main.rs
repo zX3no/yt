@@ -63,16 +63,22 @@ struct VideoOnly {
     pub url: String,
 }
 
+//Low Opus - Low Quality
+//Low Opus - High Quality
+//Low Mp4a - Low Quality
+//Keep in mind not all opus files of the same quality are the same.
+//This hopefully won't be a problem when trying to download the best
+//quality.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct AudioOnly {
-    pub audio_quality: AudioQuality,
-    pub audio_codec: AudioCodec,
+    pub quality: AudioQuality,
+    pub codec: AudioCodec,
     pub url: String,
 }
 
 fn main() {
-    let url = get_url("N5kd-JIVCgg");
-    // let url = get_url("n4Ft4WDA3oU");
+    // let url = get_url("N5kd-JIVCgg");
+    let url = get_url("n4Ft4WDA3oU");
 
     match url {
         Ok(url) => {
@@ -110,7 +116,7 @@ fn get_url(id: &str) -> Result<String, ()> {
 
     let mut videos = Vec::new();
     let mut videos_only = Vec::new();
-    let mut audios_only = Vec::new();
+    let mut audios = Vec::new();
 
     for tag in formats.iter().chain(adaptive_formats.iter()) {
         let video_quality = &tag["quality"].as_str().unwrap();
@@ -198,18 +204,18 @@ fn get_url(id: &str) -> Result<String, ()> {
             }
         } else if av.starts_with("audio/") {
             let audio = AudioOnly {
-                audio_codec: audio_codec(first),
-                audio_quality: audio_quality.unwrap(),
+                codec: audio_codec(first),
+                quality: audio_quality.unwrap(),
                 url: url.to_string(),
             };
-            audios_only.push(audio);
+            audios.push(audio);
         } else {
             unreachable!();
         };
     }
 
-    videos_only.sort();
-    videos_only.sort_by(|a, b| {
+    audios.sort();
+    audios.sort_by(|a, b| {
         if a.quality == b.quality {
             Ordering::Equal
         } else {
@@ -217,8 +223,35 @@ fn get_url(id: &str) -> Result<String, ()> {
         }
     });
 
-    for video in videos_only {
-        println!("{:?} {:?}\n{}", video.quality, video.codec, video.url);
+    let mut videos_only: Vec<VideoOnly> = videos_only
+        .into_iter()
+        .filter(|video| video.quality < VideoQuality::HD720)
+        .collect();
+
+    //I don't think we should care about pre-combined videos
+    //since they cannot have opus audio and opus is always better.
+    if videos_only.is_empty() {
+        videos.sort();
+        videos.sort_by(|a, b| {
+            if a.video_quality == b.video_quality {
+                Ordering::Equal
+            } else {
+                a.video_quality.cmp(&b.video_quality)
+            }
+        });
+
+        let best_url = &videos[0].url;
+    } else {
+        videos_only.sort();
+        videos_only.sort_by(|a, b| {
+            if a.quality == b.quality {
+                Ordering::Equal
+            } else {
+                a.quality.cmp(&b.quality)
+            }
+        });
+        let best_video_url = &videos_only[0].url;
+        let best_audio_url = &audios[0].url;
     }
 
     Err(())
